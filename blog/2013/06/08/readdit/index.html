@@ -1,0 +1,345 @@
+
+<!DOCTYPE html>
+<!--[if IEMobile 7 ]><html class="no-js iem7"><![endif]-->
+<!--[if lt IE 9]><html class="no-js lte-ie8"><![endif]-->
+<!--[if (gt IE 8)|(gt IEMobile 7)|!(IEMobile)|!(IE)]><!--><html class="no-js" lang="en"><!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <title>Readdit - Will Farley</title>
+  <meta name="author" content="Will Farley">
+
+  
+  <meta name="description" content="Readdit Project This is another project I&rsquo;ve wanted to write for quite a while. Google Reader&rsquo;s RSS feed of Reddit subreddit feeds always &hellip;">
+  
+
+  <!-- http://t.co/dKP3o1e -->
+  <meta name="HandheldFriendly" content="True">
+  <meta name="MobileOptimized" content="320">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  
+  <link rel="canonical" href="http://wfarley.github.io/blog/2013/06/08/readdit">
+  <link href="/favicon.png" rel="icon">
+  <link href="/stylesheets/screen.css" media="screen, projection" rel="stylesheet" type="text/css">
+  <link href="/atom.xml" rel="alternate" title="Will Farley" type="application/atom+xml">
+  <script src="/javascripts/modernizr-2.0.js"></script>
+  <script src="//ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js"></script>
+  <script>!window.jQuery && document.write(unescape('%3Cscript src="./javascripts/lib/jquery.min.js"%3E%3C/script%3E'))</script>
+  <script src="/javascripts/octopress.js" type="text/javascript"></script>
+  <!--Fonts from Google"s Web font directory at http://google.com/webfonts -->
+<link href="http://fonts.googleapis.com/css?family=PT+Serif:regular,italic,bold,bolditalic" rel="stylesheet" type="text/css">
+<link href="http://fonts.googleapis.com/css?family=PT+Sans:regular,italic,bold,bolditalic" rel="stylesheet" type="text/css">
+
+  
+
+</head>
+
+<body   >
+  <header role="banner"><hgroup>
+  <h1><a href="/">Will Farley</a></h1>
+  
+    <h2>Dev Blog</h2>
+  
+</hgroup>
+
+</header>
+  <nav role="navigation"><ul class="subscription" data-subscription="rss">
+  <li><a href="/atom.xml" rel="subscribe-rss" title="subscribe via RSS">RSS</a></li>
+  
+</ul>
+  
+<form action="http://google.com/search" method="get">
+  <fieldset role="search">
+    <input type="hidden" name="q" value="site:wfarley.github.io" />
+    <input class="search" type="text" name="q" results="0" placeholder="Search"/>
+  </fieldset>
+</form>
+  
+<ul class="main-navigation">
+  <li><a href="/">Blog</a></li>
+  <li><a href="/blog/archives">Archives</a></li>
+</ul>
+
+</nav>
+  <div id="main">
+    <div id="content">
+      <div>
+<article class="hentry" role="article">
+  
+  <header>
+    
+      <h1 class="entry-title">Readdit</h1>
+    
+    
+      <p class="meta">
+        
+
+
+
+
+
+
+
+
+  
+
+
+<time datetime="2013-06-08T01:28:00-05:00" pubdate data-updated="true">Jun 8<span>th</span>, 2013</time>
+        
+      </p>
+    
+  </header>
+
+
+<div class="entry-content"><h2>Readdit Project</h2>
+
+<p>This is another project I&rsquo;ve wanted to write for quite a while.  Google Reader&rsquo;s RSS feed of Reddit subreddit feeds always annoyed me. Clicking through the article goes to the reddit page, then I have to click through again to go to the actual source article.  I rarely care about the comments on the reddit page.</p>
+
+<p>I wanted to write a simple project to grab the reddit links from the feed, present those in a simple format where I can select which ones to save/read, and store those links.</p>
+
+<p>I have one script to do the article gathering; I pass in the subreddit name and the number of pages (25 articles per page) to parse.  I&rsquo;m using sqlite3 as a simple DB to store everything.  If any new articles are found, they are added to a table in the database for the subreddit.</p>
+
+<p>I have a really simple class wrapper to initialize and close the database and create the table.</p>
+
+<pre><code>def initialize
+    @db = SQLite3::Database.new("readdit.db")
+    @db.results_as_hash = true
+end
+
+def create_table(table_name)
+    @db.execute %Q|
+        CREATE TABLE IF NOT EXISTS #{table_name} (
+            id integer primary key,
+            reddit_id varchar(25),
+            title varchar(255),
+            url varchar(255),
+            permalink varchar(255),
+            created datetime,
+            saved boolean,
+            deleted boolean,
+            read_date datetime,
+            UNIQUE(reddit_id) ON CONFLICT IGNORE
+        )
+    |
+end
+</code></pre>
+
+<p>In the script for collecting the articles, I request the JSON feed from Reddit with Net::HTTP.</p>
+
+<pre><code>url_str = "http://www.reddit.com/r/#{ARGV[0]}/.json"
+
+url_str += "?count=#{25 * page}&amp;after=#{after_id}" if page &gt; 0
+
+uri = URI.parse(url_str)
+
+response = Net::HTTP.get_response(uri)
+
+json_str = response.body
+</code></pre>
+
+<p>I use the JSON gem to parse the response and turn it into a hash.</p>
+
+<pre><code>rss_data = JSON.parse(json_str)
+</code></pre>
+
+<p>The <code>after_id</code> is required to fetch the pages after the initial page, and is found in the main &lsquo;data&rsquo; section.</p>
+
+<pre><code>after_id = rss_data['data']['after']
+</code></pre>
+
+<p>All of the articles are in the &lsquo;children&rsquo; section, so I loop through the articles and pull out the data I want to store &ndash; the title of the submission, the url of the linked article, the reddit id, how many comments, whether it is a &ldquo;self&rdquo; article, and when the submission was created.  The permalink field gives the link to reddit so that I can read the comments, etc if desired.</p>
+
+<pre><code>rss_data['data']['children'].each do |rss_article|
+    article_data = rss_article['data']
+
+
+    theDB.db.execute("INSERT INTO #{ARGV[0]}_articles 
+                        (reddit_id, title, url, permalink, created) 
+                        VALUES (?, ?, ?, ?, ?)",
+                             article_data['id'],
+                             article_data['title'], 
+                              article_data['url'],
+                              article_data['permalink'], 
+                             article_data['created'])
+
+    self_article = article_data['is_self']
+    puts article_data['title']
+    puts article_data['url']
+    puts article_data['num_comments']
+    puts article_data['id']
+    puts article_data['is_self']
+    puts Time.at(article_data['created'])
+    puts article_data['selftext'] if self_article
+    puts ""
+
+end
+</code></pre>
+
+<p>I then put put together another script to sort and read the articles in the database.  I kept this pretty basic for now.</p>
+
+<p>I get each article that hasn&rsquo;t been read yet:</p>
+
+<pre><code>unread_articles = theDB.db.execute("SELECT * FROM #{ARGV[0]}_articles WHERE read_date IS NULL")
+</code></pre>
+
+<p>I loop through the returned articles and wait for a keypress to indicate whether to save the article or mark it as deleted.  I don&rsquo;t actually delete the article at this time &ndash; I want to keep it in the database so that it isn&rsquo;t re-added to the database the next time I run the script to collect articles.</p>
+
+<p>After I get the input I update the row.</p>
+
+<pre><code>unread_articles.each do |article|
+
+    #...
+
+    theDB.db.execute("UPDATE #{ARGV[0]}_articles
+                        SET saved = #{save}, deleted = #{delete}, read_date = datetime('now')
+                        WHERE id = #{article['id']}")
+end
+</code></pre>
+
+<p>I throw each saved article into an array, then I just create/open an HTML file and throw each url and permalink into it.</p>
+
+<pre><code>save_list.each do |article|
+    save_file.puts "&lt;a href=\"#{article['url']}\"&gt;#{article['title']}&lt;/a&gt; &lt;a href=\"http://www.reddit.com#{article['permalink']}\"&gt;Reddit Link&lt;/a&gt;"
+    save_file.puts "&lt;br&gt;"
+end
+</code></pre>
+
+<p>Now, rather than try to improve this reading list, I want to turn this into a Rails project.  I think it&rsquo;s a perfect fit as a project to start exploring Rails again.</p>
+</div>
+
+
+  <footer>
+    <p class="meta">
+      
+  
+
+<span class="byline author vcard">Posted by <span class="fn">Will Farley</span></span>
+
+      
+
+
+
+
+
+
+
+
+  
+
+
+<time datetime="2013-06-08T01:28:00-05:00" pubdate data-updated="true">Jun 8<span>th</span>, 2013</time>
+      
+
+
+    </p>
+    
+      <div class="sharing">
+  
+  <a href="http://twitter.com/share" class="twitter-share-button" data-url="http://wfarley.github.io/blog/2013/06/08/readdit/" data-via="" data-counturl="http://wfarley.github.io/blog/2013/06/08/readdit/" >Tweet</a>
+  
+  
+  
+</div>
+
+    
+    <p class="meta">
+      
+        <a class="basic-alignment left" href="/blog/2013/05/18/project-photo-filter/" title="Previous Post: Project - Photo Filter">&laquo; Project - Photo Filter</a>
+      
+      
+    </p>
+  </footer>
+</article>
+
+</div>
+
+<aside class="sidebar">
+  
+    <section>
+  <h1>Recent Posts</h1>
+  <ul id="recent_posts">
+    
+      <li class="post">
+        <a href="/blog/2013/06/08/readdit/">Readdit</a>
+      </li>
+    
+      <li class="post">
+        <a href="/blog/2013/05/18/project-photo-filter/">Project - Photo Filter</a>
+      </li>
+    
+      <li class="post">
+        <a href="/blog/2013/05/15/starting-out/">Starting Out</a>
+      </li>
+    
+  </ul>
+</section>
+
+<section>
+  <h1>GitHub Repos</h1>
+  <ul id="gh_repos">
+    <li class="loading">Status updating...</li>
+  </ul>
+  
+  <a href="https://github.com/wfarley">@wfarley</a> on GitHub
+  
+  <script type="text/javascript">
+    $(document).ready(function(){
+        if (!window.jXHR){
+            var jxhr = document.createElement('script');
+            jxhr.type = 'text/javascript';
+            jxhr.src = '/javascripts/libs/jXHR.js';
+            var s = document.getElementsByTagName('script')[0];
+            s.parentNode.insertBefore(jxhr, s);
+        }
+
+        github.showRepos({
+            user: 'wfarley',
+            count: 0,
+            skip_forks: true,
+            target: '#gh_repos'
+        });
+    });
+  </script>
+  <script src="/javascripts/github.js" type="text/javascript"> </script>
+</section>
+
+
+
+
+
+  
+</aside>
+
+
+    </div>
+  </div>
+  <footer role="contentinfo"><p>
+  Copyright &copy; 2013 - Will Farley -
+  <span class="credit">Powered by <a href="http://octopress.org">Octopress</a></span>
+</p>
+
+</footer>
+  
+
+
+
+
+
+
+
+  <script type="text/javascript">
+    (function(){
+      var twitterWidgets = document.createElement('script');
+      twitterWidgets.type = 'text/javascript';
+      twitterWidgets.async = true;
+      twitterWidgets.src = 'http://platform.twitter.com/widgets.js';
+      document.getElementsByTagName('head')[0].appendChild(twitterWidgets);
+    })();
+  </script>
+
+
+
+
+
+</body>
+</html>
